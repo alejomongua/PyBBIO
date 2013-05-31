@@ -49,6 +49,7 @@ sys.path.append(LIBRARIES_PATH)
 ADDITIONAL_CLEANUP = [] # See add_cleanup() below.
 START_TIME_MS = 0 # Set in run() - used by millis() and micros().
 INTERRUPT_VALUE_FILES = {}
+IS_CAPE_MGR = None
 
 # Create global mmap:
 MEM_FILE = "/dev/mem"
@@ -111,13 +112,16 @@ def _analog_init():
   _orReg(ADC_CTRL, TSC_ADC_SS_ENABLE)
 
 def _pwm_init():
-  # Enable EHRPWM module clocks:
-  _setReg(CM_PER_EPWMSS1_CLKCTRL, MODULEMODE_ENABLE)
-  # Wait for enable complete:
-  while (_getReg(CM_PER_EPWMSS1_CLKCTRL) & IDLEST_MASK): delay(1)
-  _setReg(CM_PER_EPWMSS2_CLKCTRL, MODULEMODE_ENABLE)
-  # Wait for enable complete:
-  while (_getReg(CM_PER_EPWMSS2_CLKCTRL) & IDLEST_MASK): delay(1)
+  if isCapeMgr():
+    None
+  else:
+    # Enable EHRPWM module clocks:
+    _setReg(CM_PER_EPWMSS1_CLKCTRL, MODULEMODE_ENABLE)
+    # Wait for enable complete:
+    while (_getReg(CM_PER_EPWMSS1_CLKCTRL) & IDLEST_MASK): delay(1)
+    _setReg(CM_PER_EPWMSS2_CLKCTRL, MODULEMODE_ENABLE)
+    # Wait for enable complete:
+    while (_getReg(CM_PER_EPWMSS2_CLKCTRL) & IDLEST_MASK): delay(1)
 
 def bbio_cleanup():
   """ Post-run cleanup, i.e. stopping module clocks, etc. """
@@ -135,6 +139,9 @@ def bbio_cleanup():
   _serial_cleanup()
   _pwm_cleanup()
   __mmap.close()
+
+#alias to match RPi interface
+cleanup = bbio_cleanup
 
 def _analog_cleanup():
   # Software reset:
@@ -208,6 +215,9 @@ def pinMode(gpio_pin, direction, pull=0):
   # Set output:
   _clearReg(GPIO[gpio_pin][0]+GPIO_OE, GPIO[gpio_pin][1])
 
+#alias to match RPi interface
+setup = pinMode
+
 def attachInterrupt(gpio_pin, callback, mode=BOTH):
   """ Sets an interrupt on the specified pin. 'mode' can be RISING, FALLING,
       or BOTH. 'callback' is the method called when an event is triggered. """
@@ -228,6 +238,9 @@ def digitalWrite(gpio_pin, state):
   else:
     _setReg(GPIO[gpio_pin][0]+GPIO_CLEARDATAOUT, GPIO[gpio_pin][1])
 
+#alias to match RPi interface
+output = digitalWrite
+
 def toggle(gpio_pin):
   """ Toggles the state of the given digital pin. """
   assert (gpio_pin in GPIO), "*Invalid GPIO pin: '%s'" % gpio_pin
@@ -239,6 +252,9 @@ def digitalRead(gpio_pin):
   if (_getReg(GPIO[gpio_pin][0]+GPIO_DATAIN) & GPIO[gpio_pin][1]):
     return 1
   return 0
+
+#alias to match RPi interface
+input = digitalRead
 
 def pinState(gpio_pin):
   """ Returns the state of a digital pin if it is configured as
@@ -414,17 +430,24 @@ def kernelFileIO(file_object, val=None):
   file_object.write(val)
   file_object.flush()
 
+def isCapeMgr():
+  global IS_CAPE_MGR
+  if IS_CAPE_MGR is None:
+    IS_CAPE_MGR = os.path.exists('/sys/devices')
+  return IS_CAPE_MGR
+
 def _pinMux(fn, mode):
   """ Uses kernel omap_mux files to set pin modes. """
   # There's no simple way to write the control module registers from a 
   # user-level process because it lacks the proper privileges, but it's 
   # easy enough to just use the built-in file-based system and let the 
   # kernel do the work. 
-  try:
-    with open(PINMUX_PATH+fn, 'wb') as f:
-      f.write(hex(mode)[2:]) # Write hex string (stripping off '0x')
-  except IOError:
-    print "*omap_mux file not found: '%s'" % (PINMUX_PATH+fn)
+  if not isCapeMgr():
+    try:
+      with open(PINMUX_PATH+fn, 'wb') as f:
+        f.write(hex(mode)[2:]) # Write hex string (stripping off '0x')
+    except IOError:
+      print "*omap_mux file not found: '%s'" % (PINMUX_PATH+fn)
 
 def _export(gpio_pin):
   """ Reserves a pin for userspace use with sysfs /sys/class/gpio interface. 
