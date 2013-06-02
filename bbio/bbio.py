@@ -168,7 +168,8 @@ def _pwm_cleanup():
     pwmDisable(i)
   # Could disable EHRPWM module clocks here to save some power when
   # PyBBIO isn't running, but I'm not really worried about it for the 
-  # time being.  
+  # time being.
+
 
 def addToCleanup(routine):
   """ Takes a callable object to be called during the cleanup once a 
@@ -453,7 +454,6 @@ def pwmDisable(pwm_pin):
       kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST], '0')
   else:
     assert (pwm_pin in PWM_PINS.keys()), "*Invalid PWM pin: '%s'" % pwm_pin
-
     if ("enable" in PWM_PINS[pwm_pin] and PWM_PINS[pwm_pin]["enable"] == 1):
       PWM_PINS[pwm_pin]["enable"] = 0
       fragment = "bone_pwm_" + PWM_PINS[pwm_pin]["key"]
@@ -590,7 +590,7 @@ def _unloadDeviceTree(name):
   slots = open(PWM_CTRL_DIR + '/slots', "r+")
   for line in reversed(slots.readlines()):
     if name in line:
-      device_remove = "-"+line.strip()[:1]
+      device_remove = "-"+line.strip().partition(":")[0]
       slots.write(device_remove)
       slots.flush()
 
