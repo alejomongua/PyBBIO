@@ -393,7 +393,14 @@ import os
 if (os.path.exists('/sys/devices')):
   files = os.listdir('/sys/devices')
   PWM_CTRL_DIR = '/sys/devices/'+[s for s in files if s.startswith('bone_capemgr')][0]
-  PWM_PINS = {}
+  PWM_PINS = {
+    "PWM1A" : {"key":"P9_14"},
+    "PWM1B" : {"key":"P9_16"},
+    "PWM2A" : {"key":"P8_45"},
+    "PWM2B" : {"key":"P8_13"}
+  }
+
+  PWM_FILES = {}
 
 else:
   PWM_CTRL_DIR = "/sys/class/pwm/"

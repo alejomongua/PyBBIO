@@ -346,20 +346,39 @@ def analogWrite(pwm_pin, value, resolution=RES_8BIT):
       given resolution. """
   # Make sure the pin is configured:
   pwmEnable(pwm_pin)
-  try:
-    assert resolution > 0, "*PWM resolution must be greater than 0"
-    if (value < 0): value = 0
-    if (value >= resolution): value = resolution-1
-    freq = int(kernelFileIO(PWM_FILES[pwm_pin][PWM_FREQ]))
-    period_ns = (1e9/freq)
-    # Todo: round values properly!: 
+
+  assert resolution > 0, "*PWM resolution must be greater than 0"
+  if (value < 0): value = 0
+  if (value >= resolution): value = resolution-1
+
+  if not isCapeMgr():
+    try:
+      freq = int(kernelFileIO(PWM_FILES[pwm_pin][PWM_FREQ]))
+      period_ns = (1e9/freq)
+      # Todo: round values properly!: 
+      duty_ns = int(value * (period_ns/resolution))
+      kernelFileIO(PWM_FILES[pwm_pin][PWM_DUTY], str(duty_ns))
+      # Enable output:
+      if (kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE]) == '0\n'):
+        kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE], '1') 
+    except IOError:
+      print "*PWM pin '%s' reserved by another process!" % pwm_pin
+  else:
+    period_ns = int(1e9/PWM_DEFAULT_FREQ)
     duty_ns = int(value * (period_ns/resolution))
-    kernelFileIO(PWM_FILES[pwm_pin][PWM_DUTY], str(duty_ns))
-    # Enable output:
-    if (kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE]) == '0\n'):
-      kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE], '1') 
-  except IOError:
-    print "*PWM pin '%s' reserved by another process!" % pwm_pin
+
+    try:
+      period_file = open(PWM_PINS[pwm_pin]["pwm_test_path"] + '/period', "a")
+      period_file.write(str(period_ns))
+      period_file.flush()
+
+      duty_file = open(PWM_PINS[pwm_pin]["pwm_test_path"] + '/duty', "a")
+      duty_file.write(str(duty_ns))
+      duty_file.flush()
+
+    except IOError as e:
+      print e
+
 
 # For those who don't like calling a digital signal analog:
 pwmWrite = analogWrite
@@ -392,31 +411,54 @@ def pwmEnable(pwm_pin):
   """ Ensures given PWM output is reserved for userspace use and 
       sets proper pinmux. Sets frequency to default value if output
       not already reserved. """
-  assert (pwm_pin in PWM_PINS), "*Invalid PWM pin: '%s'" % pwm_pin
-  # Set pinmux mode:
-  _pinMux(PWM_PINS[pwm_pin][0], PWM_PINS[pwm_pin][1])
-  if ('sysfs' not in kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST])):
-    # Reserve use of output:
-    kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST], '1')
-    delay(1) # Give it some time to take effect
-    # Make sure output is disabled, so it won't start outputing a 
-    # signal until analogWrite() is called: 
-    if (kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE]) == '1\n'):
-      kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE], '0')
-    # Duty cyle must be set to 0 before changing frequency:
-    kernelFileIO(PWM_FILES[pwm_pin][PWM_DUTY], '0')
-    # Set frequency to default:
-    kernelFileIO(PWM_FILES[pwm_pin][PWM_FREQ], str(PWM_DEFAULT_FREQ))
+  if not isCapeMgr():
+    assert (pwm_pin in PWM_PINS), "*Invalid PWM pin: '%s'" % pwm_pin
+    # Set pinmux mode:
+    _pinMux(PWM_PINS[pwm_pin][0], PWM_PINS[pwm_pin][1])
+    if ('sysfs' not in kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST])):
+      # Reserve use of output:
+      kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST], '1')
+      delay(1) # Give it some time to take effect
+      # Make sure output is disabled, so it won't start outputing a 
+      # signal until analogWrite() is called: 
+      if (kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE]) == '1\n'):
+        kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE], '0')
+      # Duty cyle must be set to 0 before changing frequency:
+      kernelFileIO(PWM_FILES[pwm_pin][PWM_DUTY], '0')
+      # Set frequency to default:
+      kernelFileIO(PWM_FILES[pwm_pin][PWM_FREQ], str(PWM_DEFAULT_FREQ))
+  else:
+    assert (pwm_pin in PWM_PINS.keys()), "*Invalid PWM pin: '%s'" % pwm_pin
+
+    fragment = "bone_pwm_" + PWM_PINS[pwm_pin]["key"]
+    if (_loadDeviceTree("am33xx_pwm") and _loadDeviceTree(fragment)):
+      files = os.listdir('/sys/devices')
+      ocp = '/sys/devices/'+[s for s in files if s.startswith('ocp')][0]
+      files = os.listdir(ocp)
+      pwm_test = ocp+'/'+[s for s in files if s.startswith('pwm_test_'+PWM_PINS[pwm_pin]["key"])][0]
+      PWM_PINS[pwm_pin]["pwm_test_path"] = pwm_test
+      PWM_PINS[pwm_pin]["freq"] = 0
+      PWM_PINS[pwm_pin]["enable"] = 1
 
 def pwmDisable(pwm_pin):
   """ Disables PWM output on given pin. """
-  assert (pwm_pin in PWM_PINS), "*Invalid PWM pin: '%s'" % pwm_pin
-  # Disable PWM output:
-  if (kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE]) == '1\n'):
-    kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE], '0')
-  # Relinquish userspace control:
-  if ('sysfs' in kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST])):
-    kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST], '0')
+
+  if not isCapeMgr():
+    assert (pwm_pin in PWM_PINS), "*Invalid PWM pin: '%s'" % pwm_pin
+    # Disable PWM output:
+    if (kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE]) == '1\n'):
+      kernelFileIO(PWM_FILES[pwm_pin][PWM_ENABLE], '0')
+    # Relinquish userspace control:
+    if ('sysfs' in kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST])):
+      kernelFileIO(PWM_FILES[pwm_pin][PWM_REQUEST], '0')
+  else:
+    assert (pwm_pin in PWM_PINS.keys()), "*Invalid PWM pin: '%s'" % pwm_pin
+
+    if ("enable" in PWM_PINS[pwm_pin] and PWM_PINS[pwm_pin]["enable"] == 1):
+      PWM_PINS[pwm_pin]["enable"] = 0
+      fragment = "bone_pwm_" + PWM_PINS[pwm_pin]["key"]
+      _unloadDeviceTree(fragment)
+
 
 def kernelFileIO(file_object, val=None):
   """ For reading/writing files open in 'r+' mode. When called just
@@ -530,7 +572,27 @@ def _setReg(address, new_value, length=32):
   else:
     raise ValueError("Invalid register length: %i - must be 16 or 32" % length)
 
+def _loadDeviceTree(name):
+  if not isCapeMgr():
+    return False
 
+  slots = open(PWM_CTRL_DIR + '/slots', "r+")
+  if not name in slots.read():
+    slots.write(name)
+    slots.flush()
+
+  return True
+
+def _unloadDeviceTree(name):
+  if not isCapeMgr():
+    return False
+
+  slots = open(PWM_CTRL_DIR + '/slots', "r+")
+  for line in reversed(slots.readlines()):
+    if name in line:
+      device_remove = "-"+line.strip()[:1]
+      slots.write(device_remove)
+      slots.flush()
 
 # _UART_PORT is a wrapper class for pySerial to enable Arduino-like access
 # to the UART1, UART2, UART4, and UART5 serial ports on the expansion headers:
