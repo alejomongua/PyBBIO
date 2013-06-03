@@ -49,6 +49,7 @@ sys.path.append(LIBRARIES_PATH)
 ADDITIONAL_CLEANUP = [] # See add_cleanup() below.
 START_TIME_MS = 0 # Set in run() - used by millis() and micros().
 INTERRUPT_VALUE_FILES = {}
+GPIO_EVENT_DETECT = []
 IS_CAPE_MGR = None
 
 # Create global mmap:
@@ -80,6 +81,29 @@ class EpollListener(threading.Thread):
 
 EPOLL_LISTENER = EpollListener()
 EPOLL_LISTENER.daemon = True
+
+#alias class for RPi.GPIO
+class PWM():
+  def __init__(self, pin, freq_hz=None):
+    self.pin = pin
+    self.freq_hz = freq_hz
+    pwmEnable(pin)
+
+  def start(self, duty):
+    if self.freq_hz:
+      pwmFrequency(self.pin, self.freq_hz)
+
+    analogWrite(self.pin, duty)
+
+  def ChangeFrequency(self, freq_hz):
+    pwmFrequency(self.pin, freq_hz)
+
+  def ChangeDutyCycle(self, duty):
+    analogWrite(self.pin, duty)
+
+  def stop(self):
+    pwmDisable(self.pin)
+
 
 def bbio_init():
   """ Pre-run initialization, i.e. starting module clocks, etc. """
